@@ -14,6 +14,12 @@ class Contact {
     required this.phone,
   });
 
+  // The letter shown inside the circular avatar.
+  String get firstLetter {
+    final trimmed = name.trim();
+    return trimmed.isEmpty ? '?' : trimmed.substring(0, 1);
+  }
+
   // JSON -> Contact (used after GET / POST responses).
   factory Contact.fromJson(Map<String, dynamic> json) {
     return Contact(

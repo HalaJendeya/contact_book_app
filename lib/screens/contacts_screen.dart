@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/contact.dart';
 import '../services/contact_service.dart';
 import '../widgets/contact_form.dart';
+import 'contact_details_screen.dart';
 
 class ContactsScreen extends StatefulWidget {
   // [service] is optional: the app uses the real one, tests pass a fake.
@@ -66,27 +67,30 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   // ---------------------------------------------------------------- ADD (POST)
-  Future<bool> _addContact(String name, String email, String phone) async {
+  // Returns the new Contact, or null if the request failed.
+  Future<Contact?> _addContact(String name, String email, String phone) async {
     try {
       final newContact = Contact(id: _nextLocalId, name: name, email: email, phone: phone);
       // Throws if the server does not answer 201.
       await _service.addContact(newContact);
 
-      if (!mounted) return false;
+      if (!mounted) return null;
       setState(() {
         _nextLocalId++;
         _contacts.insert(0, newContact); // show it at the top of the list
       });
       _showMessage('تمت إضافة جهة الاتصال');
-      return true;
+      return newContact;
     } catch (e) {
       if (mounted) _showMessage('تعذر إضافة جهة الاتصال', isError: true);
-      return false;
+      return null;
     }
   }
 
   // ----------------------------------------------------------------- EDIT (PUT)
-  Future<bool> _editContact(
+  // Returns the updated Contact, or null if the request failed.
+  // The list is only changed after the request succeeded.
+  Future<Contact?> _editContact(
     Contact old,
     String name,
     String email,
@@ -102,22 +106,24 @@ class _ContactsScreenState extends State<ContactsScreen> {
         await _service.updateContact(updated); // throws if status is not 200
       }
 
-      if (!mounted) return false;
+      if (!mounted) return null;
       setState(() {
         final index = _contacts.indexWhere((c) => c.id == old.id);
         if (index != -1) _contacts[index] = updated;
       });
       _showMessage('تم تحديث جهة الاتصال');
-      return true;
+      return updated;
     } catch (e) {
       if (mounted) _showMessage('تعذر تحديث جهة الاتصال', isError: true);
-      return false;
+      return null;
     }
   }
 
   // Opens the form in a dialog. contact == null means "add", otherwise "edit".
-  void _showForm({Contact? contact}) {
-    showDialog(
+  // The dialog returns the saved Contact, or null if the user cancelled.
+  // The details screen uses this same method for its Edit button.
+  Future<Contact?> _showForm({Contact? contact}) {
+    return showDialog<Contact>(
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) {
@@ -193,12 +199,39 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
-  // Runs only after confirmDismiss returned true, so the server already said OK.
+  // Runs only after the server already said OK (status 200).
   void _onDeleted(Contact contact) {
     setState(() {
       _contacts.removeWhere((c) => c.id == contact.id);
     });
     _showMessage('تم حذف جهة الاتصال');
+  }
+
+  // Delete from the details screen: same confirmation + same DELETE request
+  // as the swipe. Returns true only if the contact was really deleted.
+  Future<bool> _deleteFromDetails(Contact contact) async {
+    final deleted = await _confirmAndDelete(contact);
+    if (deleted && mounted) _onDeleted(contact);
+    return deleted;
+  }
+
+  // --------------------------------------------------------------- DETAILS
+  // The list owns the data. The details screen receives the contact and two
+  // functions, so edit / delete there change THIS list directly and the two
+  // screens can never get out of sync.
+  void _openDetails(Contact contact) {
+    // An old message (for example "contact added") should not stay on top of
+    // the new screen.
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ContactDetailsScreen(
+          contact: contact,
+          onEdit: (current) => _showForm(contact: current),
+          onDelete: _deleteFromDetails,
+        ),
+      ),
+    );
   }
 
   // ------------------------------------------------------------------------ UI
@@ -318,14 +351,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Widget _buildContactCard(Contact contact) {
-    final firstLetter =
-        contact.name.trim().isEmpty ? '?' : contact.name.trim().substring(0, 1);
-
     return Card(
       margin: EdgeInsets.zero,
       color: Colors.white,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
+        onTap: () => _openDetails(contact), // tap = open details
         onLongPress: () => _showForm(contact: contact), // long press = edit
         child: Padding(
           padding: const EdgeInsets.all(14),
@@ -335,7 +366,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 radius: 24,
                 backgroundColor: Theme.of(context).colorScheme.primaryContainer,
                 child: Text(
-                  firstLetter,
+                  contact.firstLetter,
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.bold,

@@ -7,12 +7,14 @@ import '../models/contact.dart';
 //  - Edit: initialContact is given, so the fields are pre-filled.
 //
 // The form does NOT call the API. It only collects the three values and
-// hands them to [onSubmit]. [onSubmit] returns true when saving worked.
+// hands them to [onSubmit]. [onSubmit] returns the saved Contact when saving
+// worked, or null when it failed. The dialog closes with that saved Contact,
+// so whoever opened it (showDialog) receives the new / updated Contact.
 class ContactForm extends StatefulWidget {
   const ContactForm({super.key, this.initialContact, required this.onSubmit});
 
   final Contact? initialContact;
-  final Future<bool> Function(String name, String email, String phone)
+  final Future<Contact?> Function(String name, String email, String phone)
       onSubmit;
 
   @override
@@ -53,16 +55,28 @@ class _ContactFormState extends State<ContactForm> {
     return null;
   }
 
+  // Basic email check: something@something.something (no spaces).
+  String? _validateEmail(String? value) {
+    final requiredError = _required(value);
+    if (requiredError != null) return requiredError;
+
+    final looksLikeEmail = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+    if (!looksLikeEmail.hasMatch(value!.trim())) {
+      return 'أدخل بريدًا إلكترونيًا صحيحًا';
+    }
+    return null;
+  }
+
   Future<void> _save() async {
     if (_isSaving) return; // ignore a second tap while saving
-    if (!_formKey.currentState!.validate()) return; // some field is empty
+    if (!_formKey.currentState!.validate()) return; // a field is invalid
 
     setState(() {
       _isSaving = true;
       _saveFailed = false;
     });
 
-    final success = await widget.onSubmit(
+    final saved = await widget.onSubmit(
       _nameController.text.trim(),
       _emailController.text.trim(),
       _phoneController.text.trim(),
@@ -71,8 +85,8 @@ class _ContactFormState extends State<ContactForm> {
     // The dialog may have been closed while we were waiting.
     if (!mounted) return;
 
-    if (success) {
-      Navigator.of(context).pop(); // close the dialog
+    if (saved != null) {
+      Navigator.of(context).pop(saved); // close the dialog, return the Contact
     } else {
       setState(() {
         _isSaving = false;
@@ -111,7 +125,7 @@ class _ContactFormState extends State<ContactForm> {
               prefixIcon: Icon(Icons.email_outlined),
               border: OutlineInputBorder(),
             ),
-            validator: _required,
+            validator: _validateEmail,
           ),
           const SizedBox(height: 12),
           TextFormField(
